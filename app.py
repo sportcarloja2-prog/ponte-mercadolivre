@@ -7,8 +7,6 @@ app = Flask(__name__)
 CLIENT_ID = "1482530022695442"
 CLIENT_SECRET = "tm7l1c67Qp7CQzRwDyzs6cabC7GwmeE7"
 TOKEN_FILE = "token_atual.txt"
-
-# Esse é o último Refresh Token válido que rodou com sucesso no PythonAnywhere
 REFRESH_INICIAL = "TG-6a14af90cc4ec7000112a866-162089212"
 
 if not os.path.exists(TOKEN_FILE):
@@ -25,11 +23,6 @@ def salvar_refresh_token(novo_token):
 
 @app.route('/reset', methods=['GET'])
 def reset_token():
-    """
-    FORÇA A GERAÇÃO DO ACCESS TOKEN:
-    O Render vai direto na API do Mercado Livre tentar reativar a comunicação
-    usando o nosso Refresh Token master.
-    """
     url_token = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "refresh_token",
@@ -37,26 +30,14 @@ def reset_token():
         "client_secret": CLIENT_SECRET,
         "refresh_token": REFRESH_INICIAL
     }
-    
     try:
         response = requests.post(url_token, data=payload, timeout=12)
         data = response.json()
-        
         if "access_token" in data:
             if "refresh_token" in data:
                 salvar_refresh_token(data["refresh_token"])
-            return jsonify({
-                "status": "sucesso",
-                "mensagem": "Engrenagem forçada com sucesso! Token gerado diretamente pela nuvem.",
-                "access_token_gerado": data["access_token"][:15] + "..."
-            })
-        else:
-            return jsonify({
-                "status": "erro",
-                "mensagem": "O Mercado Livre recusou a geração forçada.",
-                "resposta_do_ml": data
-            }), 400
-            
+            return jsonify({"status": "sucesso", "mensagem": "Token master resetado com sucesso!"})
+        return jsonify({"status": "erro", "resposta": data}), 400
     except Exception as e:
         return jsonify({"status": "erro", "detalhes": str(e)}), 500
 
@@ -80,22 +61,30 @@ def buscar():
         res_token = requests.post(url_token, data=payload_refresh, timeout=12)
         data_token = res_token.json()
         
-        # Se falhar, tenta o mestre de emergência
         if "access_token" not in data_token:
             payload_refresh["refresh_token"] = REFRESH_INICIAL
             res_token = requests.post(url_token, data=payload_refresh, timeout=12)
             data_token = res_token.json()
             
         if "access_token" not in data_token:
-            return jsonify({"error": "Falha na autenticação central", "detalhes": data_token}), 401
+            return jsonify({"error": "Falha na autenticacao", "detalhes": data_token}), 401
             
         access_token = data_token["access_token"]
         if "refresh_token" in data_token:
             salvar_refresh_token(data_token["refresh_token"])
             
-        # Busca os produtos no Mercado Livre Brasil
+        # --- MÁGICA DA GEOLOCALIZAÇÃO ---
+        # Forçamos a busca apontando explicitamente o site MLB (Brasil) e injetando headers brasileiros
         url_busca = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}"
-        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+            "X-Target-Country": "BR",
+            "X-Site-Id": "MLB"
+        }
+        
         res_busca = requests.get(url_busca, headers=headers, timeout=12)
         return jsonify(res_busca.json())
         
